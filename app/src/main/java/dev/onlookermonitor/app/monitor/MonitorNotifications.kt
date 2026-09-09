@@ -40,6 +40,7 @@ class MonitorNotifications(private val context: Context) {
 
     fun foreground(state: MonitorState, message: String): Notification {
         val title = when (state) {
+            MonitorState.STANDBY -> context.getString(R.string.notification_standby)
             MonitorState.STARTING -> context.getString(R.string.notification_starting)
             MonitorState.ACTIVE -> context.getString(R.string.notification_active)
             MonitorState.CANDIDATE_DETECTED -> context.getString(R.string.notification_checking)

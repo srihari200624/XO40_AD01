@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.provider.Settings
+import android.util.Log
 import android.util.Size
 import android.view.Display
 import android.view.OrientationEventListener
@@ -68,6 +69,15 @@ class OnlookerMonitorService : LifecycleService() {
     private var foregroundStarted = false
     private var cameraOpenedMillis: Long? = null
     private var lastSuccessfulAnalysisMillis: Long? = null
+    // Per-app gating state.
+    private var foregroundWatcher: ForegroundAppWatcher? = null
+    private var cameraDesired = false
+    private var perAppGatingUnavailable = false
+    private var lastForegroundPackage: String? = null
+    private var bindTriggerPackage: String? = null
+    private var bindRequestedElapsed = 0L
+    private val awaitingFirstFrame = AtomicBoolean(false)
+    private var pendingUnbindScheduled = false
     private var shieldSuppressedUntilMillis = 0L
     private var lastFaceMeteringMillis = 0L
     @Volatile
@@ -75,7 +85,18 @@ class OnlookerMonitorService : LifecycleService() {
 
     private val bindRetry = Runnable {
         bindRetryScheduled = false
-        if (running.get() && !cameraOpen) bindCamera()
+        if (running.get() && cameraDesired && !cameraOpen) bindCamera()
+    }
+
+    // Hysteresis: after leaving a protected app we hold the camera bound for a cooldown before
+    // actually unbinding, so rapid switching (and protected->protected hops) don't thrash it.
+    private val pendingUnbind = Runnable {
+        pendingUnbindScheduled = false
+        if (!running.get()) return@Runnable
+        val pkg = lastForegroundPackage
+        // A protected app may have returned to the foreground during the cooldown; if so, keep it.
+        if (pkg != null && MonitorPreferences.shouldMonitorApp(this, pkg)) return@Runnable
+        unbindCameraForStandby()
     }
 
     private val cameraAvailabilityCallback = object : CameraManager.AvailabilityCallback() {
@@ -217,12 +238,92 @@ class OnlookerMonitorService : LifecycleService() {
             return
         }
         mainHandler.post(healthCheck)
-        bindCamera()
+        startForegroundGating()
+    }
+
+    /**
+     * Decide how the camera is driven: gated by the foreground app when Usage Access is granted, or
+     * always-on fallback when it is not. When gating is active the camera starts OFF (STANDBY) and
+     * the watcher's first poll drives the initial bind/standby decision.
+     */
+    private fun startForegroundGating() {
+        val watcher = ForegroundAppWatcher(this, onForegroundPackage = ::onForegroundPackage)
+        foregroundWatcher = watcher
+        if (watcher.start()) {
+            perAppGatingUnavailable = false
+            cameraDesired = false
+            publish(MonitorState.STANDBY, "Waiting for a protected app to open")
+        } else {
+            // Usage Access not granted -> fall back to today's always-on behaviour, surfaced via
+            // the perAppGatingUnavailable flag rather than stopping.
+            perAppGatingUnavailable = true
+            cameraDesired = true
+            publish(MonitorState.STARTING, "Usage Access off; monitoring every app")
+            bindCamera()
+        }
+    }
+
+    private fun onForegroundPackage(pkg: String) {
+        if (!running.get()) return
+        lastForegroundPackage = pkg
+        if (MonitorPreferences.shouldMonitorApp(this, pkg)) {
+            // Protected app: cancel any pending cooldown unbind and ensure the camera is bound.
+            cancelPendingUnbind()
+            if (!cameraDesired) {
+                cameraDesired = true
+                bindTriggerPackage = pkg
+                bindCamera()
+            }
+        } else {
+            // Unprotected app: hold the camera for the cooldown window before unbinding.
+            if (cameraDesired) {
+                schedulePendingUnbind()
+            } else {
+                publish(MonitorState.STANDBY, "Camera off; this app isn't protected")
+            }
+        }
+    }
+
+    private fun schedulePendingUnbind() {
+        if (pendingUnbindScheduled) return
+        pendingUnbindScheduled = true
+        mainHandler.postDelayed(pendingUnbind, PROTECTED_APP_UNBIND_COOLDOWN_MILLIS)
+    }
+
+    private fun cancelPendingUnbind() {
+        if (!pendingUnbindScheduled) return
+        pendingUnbindScheduled = false
+        mainHandler.removeCallbacks(pendingUnbind)
+    }
+
+    private fun unbindCameraForStandby() {
+        cameraDesired = false
+        mainHandler.removeCallbacks(bindRetry)
+        bindRetryScheduled = false
+        awaitingFirstFrame.set(false)
+        // Remove observers first so the resulting CLOSED callback isn't mistaken for a fault.
+        camera?.cameraInfo?.cameraState?.removeObservers(this)
+        val result = runCatching { cameraProvider?.unbindAll() }
+        camera = null
+        cameraOpen = false
+        cameraOpenedMillis = null
+        imageAnalysis = null
+        analyzer?.close()
+        analyzer = null
+        logTransition("UNBIND", lastForegroundPackage, result.isSuccess, result.exceptionOrNull())
+        publish(MonitorState.STANDBY, "Camera off; this app isn't protected")
+    }
+
+    private fun logTransition(action: String, pkg: String?, ok: Boolean, error: Throwable? = null) {
+        val outcome = if (ok) "OK" else "FAILED: ${error?.javaClass?.simpleName}: ${error?.safeMessage()}"
+        Log.i(TAG, "$action pkg=$pkg $outcome")
     }
 
     private fun bindCamera() {
         if (!running.get() || cameraOpen || cameraBindInProgress) return
         cameraBindInProgress = true
+        bindRequestedElapsed = SystemClock.elapsedRealtime()
+        awaitingFirstFrame.set(true)
         val providerFuture = runCatching { ProcessCameraProvider.getInstance(this) }
             .getOrElse { error ->
                 cameraBindInProgress = false
@@ -272,10 +373,14 @@ class OnlookerMonitorService : LifecycleService() {
                     ).also { boundCamera -> observeCameraState(boundCamera) }
                     bindRetryCount = 0
                     bindRetryScheduled = false
+                }.onSuccess {
+                    logTransition("BIND", bindTriggerPackage, true)
                 }.onFailure { error ->
                     this@OnlookerMonitorService.imageAnalysis = null
                     analyzer?.close()
                     analyzer = null
+                    awaitingFirstFrame.set(false)
+                    logTransition("BIND", bindTriggerPackage, false, error)
                     scheduleBindRetry(bindErrorMessage(error))
                 }
             },
@@ -323,6 +428,10 @@ class OnlookerMonitorService : LifecycleService() {
     private fun onFrameResult(frame: FrameAnalysis) {
         mainHandler.post {
             if (!running.get()) return@post
+            if (awaitingFirstFrame.compareAndSet(true, false)) {
+                val latency = SystemClock.elapsedRealtime() - bindRequestedElapsed
+                Log.i(TAG, "FIRST_FRAME pkg=$bindTriggerPackage bind->firstFrame=${latency}ms")
+            }
             lastSuccessfulAnalysisMillis = SystemClock.elapsedRealtime()
             if (!hasCameraPermission()) {
                 publishDegraded("Camera permission was revoked")
@@ -458,6 +567,8 @@ class OnlookerMonitorService : LifecycleService() {
     }
 
     private fun scheduleBindRetry(message: String, immediate: Boolean = false) {
+        // Never retry (or report degraded) while the camera is intentionally off in STANDBY.
+        if (!cameraDesired) return
         publishDegraded(message)
         if (!running.get() || cameraOpen) return
         if (immediate) {
@@ -510,6 +621,10 @@ class OnlookerMonitorService : LifecycleService() {
 
     private fun stopMonitoring() {
         running.set(false)
+        foregroundWatcher?.stop()
+        foregroundWatcher = null
+        cancelPendingUnbind()
+        cameraDesired = false
         shieldSuppressedUntilMillis = 0L
         lastFaceMeteringMillis = 0L
         mainHandler.removeCallbacksAndMessages(null)
@@ -555,6 +670,7 @@ class OnlookerMonitorService : LifecycleService() {
                 analyzedFrames = analyzedFrames,
                 skippedFrames = skippedFrames,
                 lighting = lighting,
+                perAppGatingUnavailable = perAppGatingUnavailable,
             ),
         )
         if (foregroundStarted && running.get() && state != lastState) {
@@ -603,6 +719,8 @@ class OnlookerMonitorService : LifecycleService() {
 
     override fun onDestroy() {
         running.set(false)
+        foregroundWatcher?.stop()
+        foregroundWatcher = null
         mainHandler.removeCallbacksAndMessages(null)
         camera?.cameraInfo?.cameraState?.removeObservers(this)
         cameraProvider?.unbindAll()
@@ -639,6 +757,12 @@ class OnlookerMonitorService : LifecycleService() {
         private const val SHIELD_DISMISS_COOLDOWN_MILLIS = 1_000L
         private const val FACE_METERING_INTERVAL_MILLIS = 2_000L
         private const val FACE_METERING_CANCEL_SECONDS = 3L
+        private const val TAG = "OnlookerBindGate"
+
+        // CALIBRATION (placeholder, NOT tuned): how long the camera stays bound after leaving a
+        // protected app before it is unbound. Absorbs app-switch thrash and gives zero-gap
+        // switching between two protected apps. Needs on-device measurement.
+        private const val PROTECTED_APP_UNBIND_COOLDOWN_MILLIS = 3_000L
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(

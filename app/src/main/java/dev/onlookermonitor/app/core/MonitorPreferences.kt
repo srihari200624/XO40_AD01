@@ -6,6 +6,7 @@ import dev.onlookermonitor.app.overlay.PrivacyShieldMode
 object MonitorPreferences {
     private const val PREFS_NAME = "onlooker_monitor_prefs"
     private const val KEY_SHIELD_MODE = "privacy_shield_mode"
+    private const val KEY_PROTECTED_APPS = "protected_app_packages"
 
     fun getShieldMode(context: Context): PrivacyShieldMode {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -17,4 +18,36 @@ object MonitorPreferences {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_SHIELD_MODE, mode.name).apply()
     }
+
+    /**
+     * The set of package names the user chose to monitor ("protected apps"), or **null when the
+     * user has never configured the list**.
+     *
+     * `null` and an empty set mean different things and must not be conflated:
+     *  - `null`  = not configured yet. Callers MUST treat this as **fail-open / always-on**
+     *    (monitor everywhere), the same fallback as when a required capability is missing. Never
+     *    read `null` as "no apps are protected".
+     *  - empty set = the user configured the list and deliberately chose nothing (fail-closed).
+     *
+     * Prefer [shouldMonitorApp] over reading this directly so the fail-open rule stays in one place.
+     * Returns a defensive copy; the value stored in [android.content.SharedPreferences] must never
+     * be mutated in place.
+     */
+    fun getProtectedApps(context: Context): Set<String>? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_PROTECTED_APPS, null)?.toSet()
+    }
+
+    fun setProtectedApps(context: Context, packages: Set<String>) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_PROTECTED_APPS, packages.toSet()).apply()
+    }
+
+    /**
+     * Whether [pkg] should be monitored. Fail-open: when the protected-apps list has never been
+     * configured ([getProtectedApps] is `null`), every app returns `true` (always-on). Once the
+     * user has configured the list, only packages in it return `true`.
+     */
+    fun shouldMonitorApp(context: Context, pkg: String): Boolean =
+        getProtectedApps(context)?.contains(pkg) ?: true
 }

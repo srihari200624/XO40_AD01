@@ -1,11 +1,13 @@
 package dev.onlookermonitor.app
 
 import android.Manifest
+import android.app.AppOpsManager
 import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +28,7 @@ import dev.onlookermonitor.app.monitor.MonitorSnapshot
 import dev.onlookermonitor.app.monitor.MonitorStatusStore
 import dev.onlookermonitor.app.monitor.OnlookerMonitorService
 import dev.onlookermonitor.app.overlay.PrivacyShieldMode
+import dev.onlookermonitor.app.protectedapps.ProtectedAppsActivity
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -51,6 +54,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.grantPermissionsButton.setOnClickListener { requestRuntimePermissions() }
         binding.overlaySettingsButton.setOnClickListener { openOverlaySettings() }
+        binding.usageAccessButton.setOnClickListener { openUsageAccessSettings() }
+        binding.protectedAppsButton.setOnClickListener {
+            startActivity(Intent(this, ProtectedAppsActivity::class.java))
+        }
         binding.armButton.setOnClickListener { armProtection() }
         binding.stopButton.setOnClickListener { OnlookerMonitorService.stop(this) }
 
@@ -101,6 +108,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun openUsageAccessSettings() {
+        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
+
     private fun armProtection() {
         val missing = buildList {
             if (!hasPermission(Manifest.permission.CAMERA)) add(getString(R.string.camera_permission_name))
@@ -130,12 +141,27 @@ class MainActivity : AppCompatActivity() {
         val cameraReady = hasPermission(Manifest.permission.CAMERA)
         val notificationReady = hasNotificationPermission()
         val overlayReady = Settings.canDrawOverlays(this)
+        val usageReady = hasUsageAccess()
         updateBadge(binding.cameraPermissionStatus, cameraReady)
         updateBadge(binding.notificationPermissionStatus, notificationReady)
         updateBadge(binding.overlayPermissionStatus, overlayReady)
+        updateBadge(binding.usagePermissionStatus, usageReady)
+        // Usage Access is recommended (enables per-app gating) but NOT required to arm: without it
+        // the service falls back to always-on monitoring, so it does not block the arm button.
         binding.armButton.isEnabled = cameraReady && notificationReady && overlayReady
         binding.grantPermissionsButton.isEnabled = !cameraReady || !notificationReady
         binding.overlaySettingsButton.isEnabled = !overlayReady
+        binding.usageAccessButton.isEnabled = !usageReady
+    }
+
+    private fun hasUsageAccess(): Boolean {
+        val appOps = getSystemService(AppOpsManager::class.java)
+        val mode = appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            packageName,
+        )
+        return mode == AppOpsManager.MODE_ALLOWED
     }
 
     private fun updateBadge(view: android.widget.TextView, granted: Boolean) {
@@ -159,7 +185,11 @@ class MainActivity : AppCompatActivity() {
             else -> R.color.primary_dark
         }
         binding.monitorState.setTextColor(ContextCompat.getColor(this, stateColor))
-        binding.monitorMessage.text = snapshot.message
+        binding.monitorMessage.text = if (snapshot.perAppGatingUnavailable) {
+            getString(R.string.gating_unavailable_note, snapshot.message)
+        } else {
+            snapshot.message
+        }
         binding.faceCount.text = resources.getQuantityString(
             R.plurals.face_count,
             snapshot.visibleFaces,
@@ -197,6 +227,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun MonitorState.displayName(): String = when (this) {
         MonitorState.DISARMED -> getString(R.string.state_disarmed)
+        MonitorState.STANDBY -> getString(R.string.state_standby)
         MonitorState.STARTING -> getString(R.string.state_starting)
         MonitorState.ACTIVE -> getString(R.string.state_active)
         MonitorState.CANDIDATE_DETECTED -> getString(R.string.state_candidate)

@@ -5,6 +5,9 @@ import kotlin.math.min
 
 enum class MonitorState {
     DISARMED,
+    /** Armed and running, but the camera is intentionally off because the foreground app is not
+     *  in the user's protected set. Distinct from [DISARMED] (service stopped). */
+    STANDBY,
     STARTING,
     ACTIVE,
     CANDIDATE_DETECTED,

@@ -16,6 +16,12 @@ data class MonitorSnapshot(
     val analyzedFrames: Long = 0,
     val skippedFrames: Long = 0,
     val lighting: LightingCondition = LightingCondition.UNKNOWN,
+    /**
+     * True when per-app gating is unavailable because Usage Access was not granted, so the service
+     * is running in always-on fallback (monitoring every app). Rides alongside [state] because the
+     * fallback coexists with live ACTIVE/SHIELD detection; the UI surfaces it persistently.
+     */
+    val perAppGatingUnavailable: Boolean = false,
 )
 
 object MonitorStatusStore {
