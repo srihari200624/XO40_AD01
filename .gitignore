@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+certs/
+.gradle/
+local.properties
+**/build/
+captures/
+*.jks
+*.keystore
+
+.idea/ 

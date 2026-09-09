@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Onlooker Monitor</string>
+    <string name="product_explanation">Uses the front camera to detect an additional face and blocks immediately after a positive analysis with deliberately sensitive settings. Double-tap the black shield to dismiss it for one second. Expect occasional false shields.</string>
+    <string name="protection_stopped">Protection is stopped</string>
+    <string name="setup_title">Required access</string>
+    <string name="camera_permission_name">Front camera</string>
+    <string name="notification_permission_name">Monitoring notifications</string>
+    <string name="overlay_permission_name">Display over other apps</string>
+    <string name="permission_ready">Ready</string>
+    <string name="permission_needed">Needed</string>
+    <string name="grant_camera_notification">Grant camera and notifications</string>
+    <string name="open_overlay_settings">Allow display over other apps</string>
+    <string name="arm_protection">Arm protection</string>
+    <string name="stop_protection">Stop protection</string>
+    <string name="stop">Stop</string>
+    <string name="privacy_note">All analysis runs on this device. Camera frames and face crops are never stored. This milestone does not identify the owner and cannot guarantee coverage over apps that suppress overlays or over every system surface.</string>
+    <string name="permissions_missing">Still needed: %1$s</string>
+    <string name="arm_while_visible_error">Android refused the start. Keep this screen visible and try again.</string>
+    <string name="permission_changed_error">A required permission changed. Review the setup items and try again.</string>
+
+    <string name="state_disarmed">Disarmed</string>
+    <string name="state_starting">Starting</string>
+    <string name="state_active">Active</string>
+    <string name="state_candidate">Checking another face</string>
+    <string name="state_shield">Shield active</string>
+    <string name="state_degraded">Protection degraded</string>
+    <string name="no_faces">0 faces visible</string>
+    <string name="no_measurements">No measurements yet</string>
+    <string name="performance_summary">Last analysis: %1$d ms · analyzed %2$d · skipped %3$d</string>
+    <plurals name="face_count">
+        <item quantity="one">%d face visible</item>
+        <item quantity="other">%d faces visible</item>
+    </plurals>
+
+    <string name="shield_notification_message">An additional screen-oriented face was detected.</string>
+    <string name="notification_channel_monitoring">Active monitoring</string>
+    <string name="notification_channel_monitoring_description">Persistent status while front-camera monitoring is armed</string>
+    <string name="notification_channel_alerts">Onlooker alerts</string>
+    <string name="notification_channel_alerts_description">Alerts when the privacy shield activates</string>
+    <string name="notification_starting">Onlooker Monitor is starting</string>
+    <string name="notification_active">Onlooker Monitor is active</string>
+    <string name="notification_checking">Checking an additional face</string>
+    <string name="notification_shield">Likely onlooker detected</string>
+    <string name="notification_degraded">Onlooker protection is degraded</string>
+    <string name="notification_stopped">Onlooker Monitor is stopped</string>
+
+    <string name="response_mode_title">Onlooker response style</string>
+    <string name="response_mode_black_screen">Full black screen</string>
+    <string name="response_mode_popup_alert">Privacy warning popup</string>
+    <string name="popup_alert_title">Your privacy is compromised!</string>
+    <string name="popup_alert_message">An onlooker was detected looking at your screen.</string>
+    <string name="popup_alert_dismiss">Dismiss</string>
+</resources>

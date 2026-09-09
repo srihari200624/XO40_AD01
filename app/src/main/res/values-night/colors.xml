@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Surface & Backgrounds -->
+    <color name="surface">#F4F8FE</color>
+    <color name="surface_card">#FFFFFF</color>
+
+    <!-- Primary Blue Palette -->
+    <color name="primary">#1D4ED8</color>
+    <color name="primary_dark">#1E40AF</color>
+    <color name="accent">#2563EB</color>
+
+    <!-- Light blue palette -->
+    <color name="light_blue_50">#F0F7FF</color>
+    <color name="light_blue_100">#DBEAFE</color>
+    <color name="light_blue_200">#BFDBFE</color>
+    <color name="light_blue_300">#93C5FD</color>
+    <color name="light_blue_400">#60A5FA</color>
+    <color name="light_blue_500">#3B82F6</color>
+    <color name="light_blue_600">#2563EB</color>
+    <color name="light_blue_700">#1D4ED8</color>
+    <color name="light_blue_800">#1E40AF</color>
+    <color name="light_blue_900">#1E3A8A</color>
+
+    <!-- High contrast Text colors for maximum legibility on white/light-blue -->
+    <color name="text_primary">#0F172A</color>
+    <color name="text_secondary">#1E293B</color>
+    <color name="text_tertiary">#334155</color>
+    <color name="card_stroke">#93C5FD</color>
+
+    <!-- White & Blue Badge / Status colors -->
+    <color name="badge_ready_bg">#DBEAFE</color>
+    <color name="badge_ready_text">#1E40AF</color>
+    <color name="badge_needed_bg">#EFF6FF</color>
+    <color name="badge_needed_text">#1D4ED8</color>
+
+    <color name="state_active_bg">#DBEAFE</color>
+    <color name="state_active_text">#1E40AF</color>
+    <color name="state_shield_bg">#EFF6FF</color>
+    <color name="state_shield_text">#1D4ED8</color>
+    <color name="state_degraded_bg">#EFF6FF</color>
+    <color name="state_degraded_text">#1D4ED8</color>
+</resources>
