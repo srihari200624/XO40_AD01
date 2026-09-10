@@ -1,5 +1,7 @@
 package dev.onlookermonitor.app.camera
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -12,9 +14,12 @@ import com.google.mlkit.vision.face.FaceDetectorOptions
 import dev.onlookermonitor.app.core.AnalysisDecision
 import dev.onlookermonitor.app.core.FaceBounds
 import dev.onlookermonitor.app.core.FaceObservation
+import dev.onlookermonitor.app.core.FaceType
 import dev.onlookermonitor.app.core.FrameQuality
 import dev.onlookermonitor.app.core.LumaGrid
 import dev.onlookermonitor.app.core.MonitorConfig
+import dev.onlookermonitor.app.core.MonitorPreferences
+import dev.onlookermonitor.app.core.MonitorState
 import dev.onlookermonitor.app.core.MonitoringEngine
 import dev.onlookermonitor.app.core.SensorPoint
 import dev.onlookermonitor.app.core.TrackedFace
@@ -25,6 +30,7 @@ import java.io.Closeable
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 data class FrameAnalysis(
     val decision: AnalysisDecision,
@@ -34,9 +40,12 @@ data class FrameAnalysis(
     val quality: FrameQuality,
     /** Centre of the primary face in sensor coordinates, for auto-exposure metering. */
     val primaryFaceCenter: SensorPoint?,
+    /** Cropped onlooker face photo bitmap when capture is enabled and shield is active. */
+    val onlookerCrop: Bitmap? = null,
 )
 
 class FaceFrameAnalyzer(
+    private val context: Context,
     private val executor: Executor,
     private val config: MonitorConfig,
     private val onResult: (FrameAnalysis) -> Unit,
@@ -49,6 +58,7 @@ class FaceFrameAnalyzer(
     private val analyzedFrames = AtomicLong(0)
     private val skippedFrames = AtomicLong(0)
     private var lastRotationDegrees: Int? = null
+    private var lastCaptureMillis = 0L
 
     // Only touched from the single-threaded analysis executor, which runs both analyze() and
     // every detector listener.
@@ -62,7 +72,7 @@ class FaceFrameAnalyzer(
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
             .setContourMode(FaceDetectorOptions.CONTOUR_MODE_NONE)
-            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .setMinFaceSize(config.minFaceWidthRatio)
             .enableTracking()
             .build()
@@ -116,6 +126,15 @@ class FaceFrameAnalyzer(
                 val elapsedMillis = (SystemClock.elapsedRealtimeNanos() - startedNanos) / 1_000_000
                 val analyzed = analyzedFrames.incrementAndGet()
                 nextAnalysisAtMillis = SystemClock.elapsedRealtime() + decision.recommendedIntervalMillis
+                val onlookerCrop = if (decision.state == MonitorState.SHIELD_ACTIVE &&
+                    MonitorPreferences.isCaptureOnlookersEnabled(context)
+                ) {
+                    val candidateBounds = decision.faces.firstOrNull { it.trackId in decision.candidateTrackIds }?.bounds
+                    OnlookerPhotoCapturer.extractOnlookerCrop(imageProxy, rotationDegrees, candidateBounds)
+                } else {
+                    null
+                }
+
                 onResult(
                     FrameAnalysis(
                         decision = decision,
@@ -124,6 +143,7 @@ class FaceFrameAnalyzer(
                         skippedFrames = skippedFrames.get(),
                         quality = quality,
                         primaryFaceCenter = decision.primaryFaceCenter(rotationDegrees),
+                        onlookerCrop = onlookerCrop,
                     ),
                 )
             }
@@ -214,6 +234,14 @@ class FaceFrameAnalyzer(
             bottom = (boundingBox.bottom / height).coerceIn(0f, 1f),
         )
         val patch = grid?.statsIn(bounds)
+        val isBorder = bounds.left <= 0.03f || bounds.top <= 0.03f || bounds.right >= 0.97f || bounds.bottom >= 0.97f
+        val isProfile = abs(headEulerAngleY) > 35f || abs(headEulerAngleX) > 30f
+        val isPartial = isBorder || isProfile
+        val faceType = when {
+            isProfile -> FaceType.PARTIAL_PROFILE
+            isBorder -> FaceType.PARTIAL_BORDER
+            else -> FaceType.FULL_FACE
+        }
         return FaceObservation(
             sourceTrackingId = trackingId,
             bounds = bounds,
@@ -222,10 +250,15 @@ class FaceFrameAnalyzer(
             rollDegrees = headEulerAngleZ,
             patchLuma = patch?.meanLuma,
             patchContrast = patch?.contrast,
+            leftEyeOpenProbability = leftEyeOpenProbability,
+            rightEyeOpenProbability = rightEyeOpenProbability,
+            isPartialFace = isPartial,
+            faceType = faceType,
         )
     }
 
     private companion object {
         const val SUBSAMPLES_PER_CELL = 3
+        const val CAPTURE_COOLDOWN_MILLIS = 3_000L
     }
 }

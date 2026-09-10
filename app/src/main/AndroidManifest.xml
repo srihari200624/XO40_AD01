@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Special-access appop (granted via Settings) for the foreground-app watcher. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- ML Kit's telemetry dependency declares these. Remove them to enforce local-only use. -->
@@ -22,6 +26,18 @@
     <uses-permission
         android:name="android.permission.INTERNET"
         tools:node="remove" />
+
+    <!--
+        Scoped package visibility (Android 11+): lets us enumerate launcher-visible apps for the
+        Protected Apps picker and read their requestedPermissions. Deliberately a single
+        MAIN/LAUNCHER intent, NOT the broad QUERY_ALL_PACKAGES permission.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -41,6 +57,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".protectedapps.ProtectedAppsActivity"
+            android:exported="false" />
 
         <service
             android:name=".monitor.OnlookerMonitorService"

@@ -1,6 +1,7 @@
 package dev.onlookermonitor.app.overlay
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -14,6 +15,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import dev.onlookermonitor.app.R
@@ -25,6 +27,8 @@ class PrivacyShieldController(
     private val appContext = context.applicationContext
     private val windowManager = appContext.getSystemService(WindowManager::class.java)
     private var shieldView: View? = null
+
+    var onlookerBitmap: Bitmap? = null
 
     var mode: PrivacyShieldMode = PrivacyShieldMode.BLACK_SCREEN
         set(value) {
@@ -53,9 +57,10 @@ class PrivacyShieldController(
             },
         )
 
-        when (mode) {
-            PrivacyShieldMode.BLACK_SCREEN -> showBlackScreen(gestureDetector)
-            PrivacyShieldMode.POPUP_ALERT -> showPopupAlert(gestureDetector)
+        when {
+            onlookerBitmap != null -> showPopupAlert(gestureDetector)
+            mode == PrivacyShieldMode.BLACK_SCREEN -> showBlackScreen(gestureDetector)
+            mode == PrivacyShieldMode.POPUP_ALERT -> showPopupAlert(gestureDetector)
         }
     }
 
@@ -63,6 +68,7 @@ class PrivacyShieldController(
         val view = shieldView ?: return
         runCatching { windowManager.removeViewImmediate(view) }
         shieldView = null
+        onlookerBitmap = null
     }
 
     private fun showBlackScreen(gestureDetector: GestureDetector) {
@@ -168,9 +174,34 @@ class PrivacyShieldController(
             text = appContext.getString(R.string.popup_alert_message)
             setTextColor(Color.parseColor("#1E293B"))
             textSize = 13.5f
-            setPadding(0, dpToPx(4), 0, dpToPx(12))
+            setPadding(0, dpToPx(4), 0, dpToPx(8))
         }
         card.addView(message)
+
+        val bitmap = onlookerBitmap
+        if (bitmap != null) {
+            val photoView = ImageView(appContext).apply {
+                setImageBitmap(bitmap)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+                val photoBackground = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(12).toFloat()
+                    setColor(Color.BLACK)
+                    setStroke(dpToPx(1.5f), Color.parseColor("#1D4ED8"))
+                }
+                background = photoBackground
+                clipToOutline = true
+            }
+            val photoParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(200),
+            ).apply {
+                topMargin = dpToPx(4)
+                bottomMargin = dpToPx(12)
+            }
+            card.addView(photoView, photoParams)
+        }
 
         val buttonBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
