@@ -5,11 +5,21 @@ import kotlin.math.min
 
 enum class MonitorState {
     DISARMED,
+    /** Armed and running, but the camera is intentionally off because the foreground app is not
+     *  in the user's protected set. Distinct from [DISARMED] (service stopped). */
+    STANDBY,
     STARTING,
     ACTIVE,
     CANDIDATE_DETECTED,
     SHIELD_ACTIVE,
     DEGRADED,
+}
+
+enum class FaceType {
+    FULL_FACE,
+    PARTIAL_PROFILE,
+    PARTIAL_BORDER,
+    HAIR_AND_HEAD_SILHOUETTE,
 }
 
 data class FaceBounds(
@@ -43,6 +53,12 @@ data class FaceObservation(
     val patchLuma: Float? = null,
     /** Local luma spread under the detection; flat regions are usually sensor noise. */
     val patchContrast: Float? = null,
+    /** Eye open probabilities reported by ML Kit classification mode. */
+    val leftEyeOpenProbability: Float? = null,
+    val rightEyeOpenProbability: Float? = null,
+    /** True if this observation represents a partial face or hair/head region. */
+    val isPartialFace: Boolean = false,
+    val faceType: FaceType = FaceType.FULL_FACE,
 )
 
 data class TrackedFace(
@@ -54,6 +70,10 @@ data class TrackedFace(
     val usable: Boolean,
     val screenOriented: Boolean,
     val primary: Boolean,
+    val livenessScore: Float = 1.0f,
+    val isLive: Boolean = true,
+    val isPartialFace: Boolean = false,
+    val faceType: FaceType = FaceType.FULL_FACE,
 )
 
 data class AnalysisDecision(
@@ -73,21 +93,28 @@ data class MonitorConfig(
     val maxAbsYawDegrees: Float = 50f,
     val maxAbsPitchDegrees: Float = 40f,
     val maxAbsRollDegrees: Float = 35f,
+    // Pose gate for candidate (secondary onlooker) face detection (e.g. profile views/turned heads showing hair/side face).
+    val maxCandidateYawDegrees: Float = 55f,
+    val maxCandidatePitchDegrees: Float = 45f,
+    // Liveness and partial face configuration.
+    val minLivenessScore: Float = 0.30f,
+    val enableLivenessCheck: Boolean = true,
+    val enableHairSilhouetteDetection: Boolean = true,
     // Usable-detection floors. ML Kit reports no confidence score, so size, brightness and
     // local contrast stand in for one: tiny, near-black or flat blobs are sensor noise.
     val minFaceWidthRatio: Float = 0.08f,
     val minFaceAreaRatio: Float = 0.006f,
     val minPatchLuma: Float = 26f,
     val minPatchContrast: Float = 6f,
-    // Temporal evidence. A candidate must persist in both elapsed time and frame count
-    // before the shield fires; one blurred or noisy frame must never be enough.
-    val triggerDebounceMillis: Long = 700,
-    val minCandidateFrames: Int = 3,
+    // Temporal evidence. A candidate face triggers protection as fast as possible;
+    // one clean frame with 2+ faces is enough to initiate protection immediately.
+    val triggerDebounceMillis: Long = 100,
+    val minCandidateFrames: Int = 1,
     val candidateGraceMillis: Long = 250,
     val clearDebounceMillis: Long = 1_800,
     // Trigger suppression windows for conditions where detections cannot be trusted.
-    val sceneSettleMillis: Long = 400,
-    val motionSuppressMillis: Long = 600,
+    val sceneSettleMillis: Long = 150,
+    val motionSuppressMillis: Long = 400,
     val motionScoreThreshold: Float = 12f,
     // Frame-quality classification, in 0..255 luma units.
     val darkCellLuma: Float = 32f,
@@ -111,6 +138,9 @@ data class MonitorConfig(
         require(maxAbsYawDegrees > 0f)
         require(maxAbsPitchDegrees > 0f)
         require(maxAbsRollDegrees > 0f)
+        require(maxCandidateYawDegrees > 0f)
+        require(maxCandidatePitchDegrees > 0f)
+        require(minLivenessScore in 0f..1f)
         require(minFaceWidthRatio in 0f..1f)
         require(minFaceAreaRatio in 0f..1f)
         require(minPatchLuma >= 0f)

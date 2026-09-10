@@ -1,11 +1,14 @@
 package dev.onlookermonitor.app.overlay
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -14,6 +17,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import dev.onlookermonitor.app.R
@@ -25,6 +29,8 @@ class PrivacyShieldController(
     private val appContext = context.applicationContext
     private val windowManager = appContext.getSystemService(WindowManager::class.java)
     private var shieldView: View? = null
+
+    var onlookerBitmap: Bitmap? = null
 
     var mode: PrivacyShieldMode = PrivacyShieldMode.BLACK_SCREEN
         set(value) {
@@ -39,7 +45,17 @@ class PrivacyShieldController(
 
     fun show(): Result<Unit> = runCatching {
         check(Settings.canDrawOverlays(appContext)) { "Display-over-other-apps access was revoked" }
-        if (shieldView != null) return@runCatching
+        val startTime = SystemClock.elapsedRealtime()
+        val currentView = shieldView
+        if (currentView != null) {
+            if (currentView.visibility != View.VISIBLE) {
+                currentView.visibility = View.VISIBLE
+                Log.i("PrivacyShieldController", "OVERLAY_VISIBLE at t=$startTime (visibility set to VISIBLE)")
+            } else {
+                Log.i("PrivacyShieldController", "OVERLAY_VISIBLE (already visible)")
+            }
+            return@runCatching
+        }
 
         val gestureDetector = GestureDetector(
             appContext,
@@ -53,16 +69,26 @@ class PrivacyShieldController(
             },
         )
 
-        when (mode) {
-            PrivacyShieldMode.BLACK_SCREEN -> showBlackScreen(gestureDetector)
-            PrivacyShieldMode.POPUP_ALERT -> showPopupAlert(gestureDetector)
+        when {
+            onlookerBitmap != null -> showPopupAlert(gestureDetector)
+            mode == PrivacyShieldMode.BLACK_SCREEN -> showBlackScreen(gestureDetector)
+            mode == PrivacyShieldMode.POPUP_ALERT -> showPopupAlert(gestureDetector)
         }
+        val readyTime = SystemClock.elapsedRealtime()
+        Log.i("PrivacyShieldController", "OVERLAY_VISIBLE at t=$readyTime (created and added to WindowManager in ${readyTime - startTime}ms)")
     }
 
-    fun hide() {
+    fun hide(remove: Boolean = false) {
         val view = shieldView ?: return
-        runCatching { windowManager.removeViewImmediate(view) }
-        shieldView = null
+        if (remove || onlookerBitmap != null) {
+            runCatching { windowManager.removeViewImmediate(view) }
+            shieldView = null
+            onlookerBitmap = null
+            Log.i("PrivacyShieldController", "Overlay view removed from WindowManager")
+        } else {
+            view.visibility = View.GONE
+            Log.i("PrivacyShieldController", "Overlay view set to GONE")
+        }
     }
 
     private fun showBlackScreen(gestureDetector: GestureDetector) {
@@ -168,9 +194,34 @@ class PrivacyShieldController(
             text = appContext.getString(R.string.popup_alert_message)
             setTextColor(Color.parseColor("#1E293B"))
             textSize = 13.5f
-            setPadding(0, dpToPx(4), 0, dpToPx(12))
+            setPadding(0, dpToPx(4), 0, dpToPx(8))
         }
         card.addView(message)
+
+        val bitmap = onlookerBitmap
+        if (bitmap != null) {
+            val photoView = ImageView(appContext).apply {
+                setImageBitmap(bitmap)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+                val photoBackground = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(12).toFloat()
+                    setColor(Color.BLACK)
+                    setStroke(dpToPx(1.5f), Color.parseColor("#1D4ED8"))
+                }
+                background = photoBackground
+                clipToOutline = true
+            }
+            val photoParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(200),
+            ).apply {
+                topMargin = dpToPx(4)
+                bottomMargin = dpToPx(12)
+            }
+            card.addView(photoView, photoParams)
+        }
 
         val buttonBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE

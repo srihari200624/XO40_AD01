@@ -1,10 +1,12 @@
 package dev.onlookermonitor.app.core
 
+import kotlin.math.abs
 import kotlin.math.hypot
 
 class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
     private val tracker = FaceTracker(config.trackingIouThreshold, config.trackExpiryMillis)
     private val policy = OnlookerPolicy(config)
+    val frameMemory = TemporalFrameMemory(maxHistorySize = 20)
     private var primaryTrackId: Long? = null
     private var lastTimestampMillis: Long? = null
     private var lastVisibleTrackIds = emptySet<Long>()
@@ -27,6 +29,15 @@ class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
             resetEvidenceState()
         }
         lastTimestampMillis = nowMillis
+
+        frameMemory.recordFrame(
+            nowMillis = nowMillis,
+            faceCount = faces.size,
+            meanLuma = quality.meanLuma,
+            contrast = quality.contrast,
+            motionScore = quality.motionScore,
+            processingMillis = 0L,
+        )
 
         val matches = tracker.update(faces, nowMillis)
         val usableMatches = matches.filter { it.face.isUsable(quality) }
@@ -51,6 +62,9 @@ class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
         val trackedFaces = matches.map { match ->
             val usable = match.face.isUsable(quality)
             val oriented = usable && match.face.isScreenOriented()
+            val livenessScore = match.livenessScore
+            val isLive = if (config.enableLivenessCheck) livenessScore >= config.minLivenessScore else true
+
             TrackedFace(
                 trackId = match.trackId,
                 bounds = match.face.bounds,
@@ -60,11 +74,20 @@ class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
                 usable = usable,
                 screenOriented = oriented,
                 primary = match.trackId == primaryTrackId,
+                livenessScore = livenessScore,
+                isLive = isLive,
+                isPartialFace = match.face.isPartialFace,
+                faceType = match.face.faceType,
             )
         }
         val candidates = if (usableMatches.size > 1) {
             trackedFaces.asSequence()
-                .filter { it.usable && !it.primary && it.screenOriented }
+                .filter { face ->
+                    face.usable &&
+                        !face.primary &&
+                        face.isLive &&
+                        (face.screenOriented || face.isCandidateOriented(config))
+                }
                 .map(TrackedFace::trackId)
                 .toSet()
         } else {
@@ -117,6 +140,7 @@ class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
 
     private fun resetEvidenceState() {
         tracker.reset()
+        frameMemory.clear()
         primaryTrackId = null
         lastVisibleTrackIds = emptySet()
         lastUsableTrackIds = emptySet()
@@ -173,5 +197,10 @@ class MonitoringEngine(private val config: MonitorConfig = MonitorConfig()) {
     private fun FaceObservation.isScreenOriented(): Boolean =
         kotlin.math.abs(yawDegrees) <= config.maxAbsYawDegrees &&
             kotlin.math.abs(pitchDegrees) <= config.maxAbsPitchDegrees &&
+            abs(rollDegrees) <= config.maxAbsRollDegrees
+
+    private fun TrackedFace.isCandidateOriented(config: MonitorConfig): Boolean =
+        abs(yawDegrees) <= config.maxCandidateYawDegrees &&
+            abs(pitchDegrees) <= config.maxCandidatePitchDegrees &&
             kotlin.math.abs(rollDegrees) <= config.maxAbsRollDegrees
 }

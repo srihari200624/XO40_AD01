@@ -1,98 +1,116 @@
-# Onlooker Monitor
+# Onlooker Monitor 🛡️
 
-Native Kotlin Android prototype for detecting a likely physical onlooker with the front
-camera and showing a best-effort opaque privacy shield. It follows
-[`SCREEN_ONLOOKER_MONITOR_METHODOLOGY.md`](SCREEN_ONLOOKER_MONITOR_METHODOLOGY.md).
+**Onlooker Monitor** is a native Kotlin Android application designed to protect user privacy from physical onlookers ("shoulder surfers"). Utilizing the device's front camera via CameraX and ML Kit Face Detection, the app continuously monitors for unauthorized additional faces looking toward the screen while you use sensitive applications.
 
-The current milestone detects this provisional condition:
+---
+
+## 🌟 Key Features
+
+- 👁️ **Real-Time Onlooker Detection**: On-device front-camera analysis detecting when an additional screen-oriented face is present.
+- 🎯 **Per-App Sensitivity Gating**: Monitors only when sensitive applications (UPI, Banking, DigiLocker, Groww, or user-selected apps) are in the foreground. Automatically turns off the camera when in unprotected apps or on the home screen.
+- 🖼️ **Cropped Onlooker Photo Popup**: Option to display an on-screen overlay popup featuring an in-memory cropped image of the detected onlooker.
+- 🛡️ **Dual Privacy Response Modes**:
+  - **Full Black Screen**: Immediately masks the entire screen.
+  - **Privacy Warning Popup**: Displays a non-intrusive warning card with an optional cropped image of the onlooker.
+- 🔒 **100% On-Device & Private**: All image processing and inference run locally in memory. Zero network access (`INTERNET` permission excluded) and zero disk storage required.
+- ⚡ **Adaptive Frame Pipeline**:
+  - Motion blur and scene-settle suppression to avoid false triggers during phone movement.
+  - Frame quality and luma sampling to ignore sensor noise in near-dark environments.
+  - Debounced trigger windows with liveness verification.
+
+---
+
+## 🏗️ Architecture & Data Flow
 
 ```text
-more than one usable face
-AND an additional face has a screen-oriented head pose
-AND the additional face is present in the current analyzed frame
+CameraX Front Camera (640x480)
+        │
+        ▼
+FaceFrameAnalyzer ──► Bundled ML Kit Face Detector
+        │             (Normalized bounds, head pose yaw/pitch/roll)
+        │          ──► LumaGrid Y-plane sampling
+        │             (Mean luma, contrast spread, motion score)
+        ▼
+MonitoringEngine
+   ├── FaceTracker (ML ID association & IoU overlap tracking)
+   ├── Usable-size, luma/contrast, & head-pose orientation gates
+   ├── Primary face vs. candidate onlooker identification
+   └── OnlookerPolicy (Per-candidate evidence, trigger/clear debounce)
+        │
+        ▼
+OnlookerMonitorService (Foreground Service)
+   ├── ForegroundAppWatcher (UsageStatsManager polling every 500ms)
+   ├── PrivacyShieldController (TYPE_APPLICATION_OVERLAY)
+   ├── MonitorStatusStore (StateFlow status stream)
+   └── MonitorNotifications (Foreground status & alert notifications)
 ```
 
-It does not yet identify the owner or estimate eye gaze. Detection is not a security
-guarantee: Android apps can suppress overlays, and an application overlay cannot cover every
-system or lock-screen surface.
+---
 
-## What is implemented
+## ⚙️ User Configuration & Settings
 
-- On-device front-camera analysis with CameraX and the bundled ML Kit face detector.
-- Stable multi-face tracking with tracking-ID and bounding-box overlap association.
-- Evidence-based onlooker filtering: an additional screen-oriented face must persist for the
-  trigger debounce across several analyzed frames before the shield fires.
-- A frame-quality gate derived from the camera luma plane: near-black or flat detections are
-  rejected as sensor noise, poor light lengthens the debounce and raises the size floor, and
-  near-darkness suppresses triggering outright.
-- Trigger suppression while the scene is churning or the phone is moving, so motion blur and
-  a face appearing from nothing cannot shield on their own.
-- Auto-exposure metering on the primary face when the scene is strongly backlit.
-- A text-free, opaque black privacy shield that extends into the cutout and system-bar layout
-  areas Android exposes to application overlays.
-- A foreground service with persistent status, high-priority alerts, vibration, and a Stop
-  notification action.
-- Camera-contention recovery, runtime permission/overlay health checks, degraded-state
-  reporting, and automatic recovery after valid analysis resumes.
-- A status screen showing the state, visible-face count, inference time, and frame counters.
-- No internet or storage permission; frames and face crops are not stored.
+### 1. Response Style
+- **Full Black Screen**: Displays an opaque black overlay covering the entire screen. Double-tap anywhere to temporarily dismiss.
+- **Privacy Warning Popup**: Displays a top overlay card warning you of the onlooker.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module boundaries and Kotlin APIs.
+### 2. Show Onlooker Photo Popup
+- When enabled, the app captures an in-memory frame, crops directly to the candidate onlooker's face region with padding, and renders the cropped photo directly inside the warning popup card.
 
-## Build and install on your phone
+### 3. Protected Apps
+- Select which apps trigger active monitoring.
+- **Default set**: UPI apps (Google Pay, PhonePe, Paytm, BHIM), Banking apps (HDFC, SBI, ICICI, Axis, Kotak), and biometric-protected apps.
+- **Per-App Gating**: When you switch to an unselected app (or return to the home screen), the camera automatically unbinds within 1 second and transitions to `STANDBY` mode ("Camera off; this app isn't protected").
 
-The easiest path is Android Studio:
+---
 
-1. Install the latest stable Android Studio with JDK 17 and Android SDK Platform 37.
-2. Open this directory as a project and let Gradle sync.
-3. Connect an Android 12+ phone with USB debugging enabled.
-4. Select the `app` run configuration and press **Run**.
+## 🚀 Building and Running
 
-Or from a configured terminal:
+### Prerequisites
+- **Android Studio**: Ladybug / Jellyfish or newer (JDK 17)
+- **Target SDK**: 36 (Compile SDK 37, Min SDK 31)
+- **Device**: Android 12+ (API 31+) device with USB debugging enabled
 
+### Quick Start via Terminal
 ```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug
+# Run unit tests
+./gradlew testDebugUnitTest
+
+# Build debug APK
+./gradlew assembleDebug
+
+# Deploy to connected device
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On the phone:
+---
 
-1. Grant camera and notification access.
-2. Open **Display over other apps** and allow Onlooker Monitor.
-3. Return to the app and tap **Arm protection** while the activity is visible.
-4. Keep yourself visible as the primary face, then have a second person enter the front
-   camera view and look generally toward the screen.
-5. Stop from the persistent notification or reopen the app and tap **Stop protection**.
+## 📱 On-Device Permissions Required
 
-The shield itself is intentionally solid black and contains no visible controls or text.
-Double-tap anywhere on it to dismiss it immediately; detection remains armed but cannot show
-the shield again for one second. Use the persistent notification's **Stop** action to stop
-monitoring completely. Android may still draw protected system UI or lock-screen surfaces
-above an application overlay.
+1. **Front Camera**: Required for on-device face analysis.
+2. **Display over other apps**: Required for rendering the privacy shield overlay above other apps.
+3. **Usage Access**: Recommended for per-app gating (enables automatic camera shutdown when outside protected apps).
+4. **Notifications**: Required for running the foreground monitoring service and alerting.
 
-For the first test, use even lighting. A second screen-oriented face must persist for about
-0.7 s (longer in poor light) before the shield appears, so expect roughly one second between
-an onlooker arriving and the screen blanking. The status line reports reduced confidence in
-low light, strong backlight, and near-darkness rather than shielding on untrustworthy frames.
-Camera capture, face inference, main-thread scheduling, and display composition mean
-the end-to-end response cannot be guaranteed below 5 ms. The UI reports visible-face count,
-last inference time, analyzed frames, and skipped frames. Values in `MonitorConfig` are
-false-positive-conscious provisional settings, not validated security thresholds; it is the
-single surface to retune from measured device sessions.
+---
 
-## Release preparation
+## 🧪 Testing Strategy & Verification
 
-Before treating a build as production:
+The repository includes unit tests covering core tracking, policy debouncing, frame quality gating, and memory management:
 
-- Replace `applicationId` and configure an externally protected release signing key.
-- Run device tests across Android 12–16 and selected OEMs.
-- Collect labeled false-shield/missed-face sessions without storing camera frames in the app.
-- Tune thresholds only from that data and document the resulting device matrix.
-- Test camera contention, permission revocation, overlay blocking, rotation, lock/unlock,
-  low light, masks/glasses, thermal throttling, and long-duration battery behavior.
-- Complete an accessibility review and translations.
-- Decide the deferred owner-recognition and presentation-attack policies before adding face
-  embeddings.
+```bash
+./gradlew testDebugUnitTest
+```
 
-Do not add `INTERNET`, storage, AccessibilityService, or MediaProjection permissions to this
-milestone. Review [`SECURITY.md`](SECURITY.md) before changing the privacy boundary.
+---
+
+## 🔒 Security & Privacy Model
+
+- **No Internet Access**: The app manifest omits `android.permission.INTERNET`.
+- **No Disk Storage**: Frames and face crops are held in memory only for immediate UI rendering and are never written to disk or media store.
+- **In-Memory Operations**: Image proxies are closed immediately after inference.
+
+---
+
+## 📄 License
+
+Distributed under the Apache 2.0 License. See `LICENSE` for details.

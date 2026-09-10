@@ -51,4 +51,23 @@
     <string name="popup_alert_title">Your privacy is compromised!</string>
     <string name="popup_alert_message">An onlooker was detected looking at your screen.</string>
     <string name="popup_alert_dismiss">Dismiss</string>
+
+    <string name="capture_onlookers_title">Show onlooker photo popup</string>
+    <string name="capture_onlookers_desc">Display a popup with a cropped photo of the onlooker when high-confidence onlooking is detected</string>
+
+    <string name="state_standby">Camera off (app not protected)</string>
+    <string name="notification_standby">Camera off — app not protected</string>
+    <string name="usage_permission_name">Usage access</string>
+    <string name="allow_usage_access">Allow usage access</string>
+    <string name="gating_unavailable_note">%1$s\nUsage Access off — monitoring every app.</string>
+
+    <string name="protected_apps_title">Protected apps</string>
+    <string name="protected_apps_intro">These are our best guess based on what looks sensitive — add or remove anything you like.</string>
+    <string name="protected_apps_card_title">Protected apps</string>
+    <string name="protected_apps_card_desc">Choose which apps should turn on monitoring.</string>
+    <string name="protected_apps_button">Choose protected apps</string>
+    <string name="protected_apps_icon_desc">App icon</string>
+
+    <string name="confidentiality_rating_title">Confidentiality Rating</string>
+    <string name="confidentiality_score_format">%1$d%% · %2$s</string>
 </resources>
